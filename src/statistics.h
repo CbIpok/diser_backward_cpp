@@ -1,3 +1,4 @@
+// statistics.h
 #ifndef STATISTICS_H
 #define STATISTICS_H
 
@@ -7,9 +8,14 @@
 #include "stable_data_structs.h"
 #include "managers.h"
 
-// Определяем тип для хранения коэффициентов для каждого пикселя:
-// двумерный массив (размер region_height x region_width) элементов, где каждый элемент – вектор коэффициентов.
-using CoeffMatrix = std::vector<std::vector<Eigen::VectorXd>>;
+// Новая структура для хранения коэффициентов и ошибки аппроксимации
+struct CoefficientData {
+    Eigen::VectorXd coefs;
+    double aprox_error;
+};
+
+// Тип для хранения данных по всем пикселям: двумерный массив объектов CoefficientData
+using CoeffMatrix = std::vector<std::vector<CoefficientData>>;
 
 // Функция для вычисления статистики аппроксимации по всему региону
 void calculate_statistics(const std::string& root_folder,
@@ -19,7 +25,7 @@ void calculate_statistics(const std::string& root_folder,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto);
 
-// Функция для сохранения статистики в CSV-файлы
+// Функция для сохранения статистики в JSON-файл
 void save_and_plot_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,

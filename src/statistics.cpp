@@ -45,112 +45,109 @@ void calculate_statistics(const std::string& root_folder,
 
     statistics_orto.clear();
 
-    // Для каждого пачки по оси y
     for (int y_start = y_start_init; y_start < height / 4; y_start += batch_size) {
         int y_end = std::min(y_start + batch_size, height);
-        // Загружаем данные
         auto wave_data = wave_manager.load_mariogramm_by_region(y_start, y_end);
         auto fk_data = basis_manager.get_fk_region(y_start, y_end);
         if (wave_data.empty() || fk_data.empty()) continue;
-        // Предполагаем, что wave_data имеет размер [T][region_height][region_width]
         int T = wave_data.size();
         int region_height = wave_data[0].size();
         int region_width = wave_data[0][0].size();
-        int n_basis = fk_data.size(); // количество basis файлов
+        int n_basis = fk_data.size();
 
-        // В Python использовался диапазон x от 0 до width/3
         int x_max = width / 4;
         std::cout << "loaded\n";
-        // Create a vector to hold futures for each row.
-        std::vector<std::future<std::vector<Eigen::VectorXd>>> futures;
+
+        std::vector<std::future<std::vector<CoefficientData>>> futures;
         futures.reserve(region_height);
 
-        // Launch an async task for each row.
         for (int i = 0; i < region_height; i++) {
-            // Capture i by value; capture wave_data and fk_data by reference.
-            futures.push_back(std::async(std::launch::async, [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<Eigen::VectorXd> {
-                std::vector<Eigen::VectorXd> row_orto;
-                // Process each x in the row.
+            futures.push_back(std::async(std::launch::async, [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<CoefficientData> {
+                std::vector<CoefficientData> row_data;
                 for (int x = 0; x < x_max; x++) {
-                    // Build wave_vector from wave_data[t][i][x] for each t.
+                    // Сборка вектора значений сигнала для текущего пикселя
                     Eigen::VectorXd wave_vector(T);
                     for (int t = 0; t < T; t++) {
                         wave_vector[t] = wave_data[t][i][x];
                     }
-                    // Build the smoothed_basis matrix (n_basis x T) from fk_data[b][t][i][x].
+                    // Сборка матрицы базиса (n_basis x T)
                     Eigen::MatrixXd smoothed_basis(n_basis, T);
                     for (int b = 0; b < n_basis; b++) {
                         for (int t = 0; t < T; t++) {
                             smoothed_basis(b, t) = fk_data[b][t][i][x];
                         }
                     }
-                    // Ensure dimensions match.
                     if (smoothed_basis.cols() != wave_vector.size()) continue;
-                    // Compute the orthogonal approximation coefficients.
+
+                    // Вычисление коэффициентов аппроксимации методом с ортогонализацией
                     Eigen::VectorXd coefs_orto = approximate_with_non_orthogonal_basis_orto(wave_vector, smoothed_basis);
-                    row_orto.push_back(coefs_orto);
+
+                    // Вычисление аппроксимированного сигнала:
+                    Eigen::VectorXd approximation = smoothed_basis.transpose() * coefs_orto;
+                    // Вычисление среднеквадратичной ошибки (RMSE)
+                    double error = std::sqrt((wave_vector - approximation).squaredNorm() / wave_vector.size());
+
+                    CoefficientData pixelData;
+                    pixelData.coefs = coefs_orto;
+                    pixelData.aprox_error = error;
+                    row_data.push_back(pixelData);
                 }
-                return row_orto;
+                return row_data;
                 }));
         }
 
-        // Retrieve the results in order and push them into statistics_orto.
         for (auto& future : futures) {
-            auto row_orto = future.get();
-            if (!row_orto.empty()) {
-                statistics_orto.push_back(row_orto);
+            auto row_data = future.get();
+            if (!row_data.empty()) {
+                statistics_orto.push_back(row_data);
             }
         }
-
     }
 }
 
-// Функция сохранения двумерного массива коэффициентов в CSV-файл
-void save_coefficients_csv(const std::string& filename, const CoeffMatrix& coeffs) {
-    std::ofstream ofs(filename);
-    if (!ofs.is_open()) {
-        std::cerr << "Не удалось открыть файл " << filename << " для записи.\n";
-        return;
-    }
-    // Каждая строка – один ряд статистики, каждая ячейка содержит вектор коэффициентов (числа разделены пробелами)
-    for (const auto& row : coeffs) {
-        bool firstCell = true;
-        for (const auto& vec : row) {
-            if (!firstCell) ofs << ",";
-            firstCell = false;
-            std::ostringstream oss;
-            for (int i = 0; i < vec.size(); i++) {
-                oss << vec[i];
-                if (i + 1 < vec.size()) oss << " ";
-            }
-            ofs << oss.str();
-        }
-        ofs << "\n";
-    }
-    ofs.close();
-    std::cout << "Сохранено: " << filename << "\n";
-}
+//// Функция сохранения двумерного массива коэффициентов в CSV-файл
+//void save_coefficients_csv(const std::string& filename, const CoeffMatrix& coeffs) {
+//    std::ofstream ofs(filename);
+//    if (!ofs.is_open()) {
+//        std::cerr << "Не удалось открыть файл " << filename << " для записи.\n";
+//        return;
+//    }
+//    // Каждая строка – один ряд статистики, каждая ячейка содержит вектор коэффициентов (числа разделены пробелами)
+//    for (const auto& row : coeffs) {
+//        bool firstCell = true;
+//        for (const auto& vec : row) {
+//            if (!firstCell) ofs << ",";
+//            firstCell = false;
+//            std::ostringstream oss;
+//            for (int i = 0; i < vec.size(); i++) {
+//                oss << vec[i];
+//                if (i + 1 < vec.size()) oss << " ";
+//            }
+//            ofs << oss.str();
+//        }
+//        ofs << "\n";
+//    }
+//    ofs.close();
+//    std::cout << "Сохранено: " << filename << "\n";
+//}
 
 void save_coefficients_json(const std::string& filename, const CoeffMatrix& coeffs) {
     nlohmann::json j;
-    // Проходим по всем строкам и столбцам матрицы коэффициентов
     for (size_t row = 0; row < coeffs.size(); ++row) {
         for (size_t col = 0; col < coeffs[row].size(); ++col) {
-            // Формирование ключа вида "[row,col]"
             std::string key = "[" + std::to_string(row) + "," + std::to_string(col) + "]";
-            // Преобразуем Eigen::VectorXd в std::vector<double>
-            std::vector<double> vec(coeffs[row][col].data(), coeffs[row][col].data() + coeffs[row][col].size());
-            j[key] = vec;
+            // Преобразование Eigen::VectorXd в std::vector<double>
+            std::vector<double> vec(coeffs[row][col].coefs.data(),
+                coeffs[row][col].coefs.data() + coeffs[row][col].coefs.size());
+            double error = coeffs[row][col].aprox_error;
+            j[key] = { {"coefs", vec}, {"aprox_error", error} };
         }
     }
-
     std::ofstream ofs(filename);
     if (!ofs.is_open()) {
         std::cerr << "Не удалось открыть файл " << filename << " для записи.\n";
         return;
     }
-
-    // Запись в файл с отступами для читаемости
     ofs << j.dump(4);
     ofs.close();
     std::cout << "Сохранено: " << filename << "\n";
