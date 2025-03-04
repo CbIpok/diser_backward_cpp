@@ -25,6 +25,20 @@ using json = nlohmann::json;
 // извлекает вектор времени (wave_vector) и соответствующий базис (smoothed_basis) и вычисляет
 // коэффициенты аппроксимации обычным методом (non orto) и методом с ортогонализацией (orto).
 //
+
+int count_from_name(const std::string& name) {
+    // Находим позицию символа '_'
+    std::size_t underscorePos = name.find('_');
+    if (underscorePos != std::string::npos) {
+        // Извлекаем подстроку после '_'
+        std::string numberPart = name.substr(underscorePos + 1);
+        // Преобразуем в целое число
+        return std::stoi(numberPart);
+    }
+    // Если '_' не найден, вернём 0 или любое другое значение по умолчанию
+    return 0;
+}
+
 void calculate_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
@@ -40,7 +54,7 @@ void calculate_statistics(const std::string& root_folder,
 
     int width = area_config.all[0];
     int height = area_config.all[1];
-    int batch_size = 8;
+    int batch_size = 64*6/count_from_name(basis);
     int y_start_init = 75;
 
     statistics_orto.clear();

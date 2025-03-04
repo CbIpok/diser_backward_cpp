@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "stable_data_structs.h"
 
 // Класс для работы с данными basis, содержащимися в NetCDF-файлах
 class BasisManager {
