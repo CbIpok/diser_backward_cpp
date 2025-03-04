@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <vector>
 #include <future>
-#include <mutex>
 namespace fs = std::filesystem;
 
 // Функция для открытия NetCDF-файла с проверкой ошибок
@@ -80,8 +79,7 @@ std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_re
     return data;
 }
 
-// Реализация метода BasisManager::get_fk_region с использованием netcdf.h
-std::mutex netcdf_mutex;
+
 
 std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_region(int y_start, int y_end) {
     std::vector<std::vector<std::vector<std::vector<double>>>> fk;
@@ -95,21 +93,21 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
     std::vector<std::future<std::vector<std::vector<std::vector<double>>>>> futures;
 
     for (const auto& file : files) {
-        futures.push_back(std::async(std::launch::async, [file, y_start, y_end]() -> std::vector<std::vector<std::vector<double>>> {
+        futures.push_back(std::async(std::launch::deferred, [file, y_start, y_end]() -> std::vector<std::vector<std::vector<double>>> {
             std::vector<std::vector<std::vector<double>>> data;
             std::cout << file << std::endl;
             int ncid;
 
             // Синхронизация открытия файла и других вызовов netCDF
             {
-                std::lock_guard<std::mutex> lock(netcdf_mutex);
+          
                 if (open_nc_file(file.string(), ncid) != NC_NOERR)
                     return data;
             }
 
             int varid;
             {
-                std::lock_guard<std::mutex> lock(netcdf_mutex);
+             
                 int retval = nc_inq_varid(ncid, "height", &varid);
                 if (retval != NC_NOERR) {
                     std::cerr << "Переменная 'height' не найдена в " << file.string() << std::endl;
@@ -120,12 +118,12 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
 
             int ndims;
             {
-                std::lock_guard<std::mutex> lock(netcdf_mutex);
+        
                 nc_inq_varndims(ncid, varid, &ndims);
             }
             if (ndims != 3) {
                 std::cerr << "Ожидалось 3 измерения в файле " << file.string() << std::endl;
-                std::lock_guard<std::mutex> lock(netcdf_mutex);
+       
                 nc_close(ncid);
                 return data;
             }
@@ -133,7 +131,7 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
             int dimids[3];
             size_t T, Y, X;
             {
-                std::lock_guard<std::mutex> lock(netcdf_mutex);
+        
                 nc_inq_vardimid(ncid, varid, dimids);
                 nc_inq_dimlen(ncid, dimids[0], &T);
                 nc_inq_dimlen(ncid, dimids[1], &Y);

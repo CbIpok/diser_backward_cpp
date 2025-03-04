@@ -5,8 +5,6 @@ project(TsunamiCoefficientsCalculator VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Находим пакет netcdf-cxx4 (NetCDF C++ API)
-find_package(netCDFCxx CONFIG REQUIRED)
 
 # Подключаем Eigen через FetchContent
 include(FetchContent)
@@ -17,7 +15,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(eigen)
 
-# Подключаем nlohmann/json через FetchContent
+# Подключаем nlohmann/json (можно добавить через FetchContent или vcpkg)
 include(FetchContent)
 FetchContent_Declare(
     json
@@ -25,6 +23,11 @@ FetchContent_Declare(
     GIT_TAG v3.11.2
 )
 FetchContent_MakeAvailable(json)
+
+# Указываем путь до установленного NetCDF (NetCDF‑C, а также NetCDF‑C++ API если требуется)
+set(NetCDF_DIR "C:/Program Files/netCDF_4.9.3")
+include_directories("${NetCDF_DIR}/include")
+link_directories("${NetCDF_DIR}/lib")
 
 # Добавляем исходники проекта
 add_executable(TsunamiCoefficientsCalculator
@@ -39,8 +42,8 @@ add_executable(TsunamiCoefficientsCalculator
     src/statistics.cpp
 )
 
-# Линкуем с netcdf-cxx4 через целевой импортируемый таргет
-target_link_libraries(TsunamiCoefficientsCalculator PRIVATE netcdf-cxx4::netcdf-cxx4)
+# Линкуем с библиотекой netcdf.lib (убедитесь, что она находится в NetCDF_DIR/lib)
+target_link_libraries(TsunamiCoefficientsCalculator PRIVATE netcdf.lib)
 
-# Если требуется, можно добавить указание для Eigen (FetchContent уже добавил заголовки)
+# Если требуется, можно добавить явное указание для Eigen (хотя FetchContent уже подключает заголовки):
 target_include_directories(TsunamiCoefficientsCalculator PRIVATE ${eigen_SOURCE_DIR})
