@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <future>
 #include <algorithm>
 #include "json.hpp"  // Подключение библиотеки nlohmann::json
 
@@ -39,7 +40,7 @@ void calculate_statistics(const std::string& root_folder,
 
     int width = area_config.all[0];
     int height = area_config.all[1];
-    int batch_size = 48;
+    int batch_size = 8;
     int y_start_init = 75;
 
     statistics_orto.clear();
@@ -60,39 +61,45 @@ void calculate_statistics(const std::string& root_folder,
         // В Python использовался диапазон x от 0 до width/3
         int x_max = width / 4;
         std::cout << "loaded\n";
-        // Для каждой строки региона
+        // Create a vector to hold futures for each row.
+        std::vector<std::future<std::vector<Eigen::VectorXd>>> futures;
+        futures.reserve(region_height);
+
+        // Launch an async task for each row.
         for (int i = 0; i < region_height; i++) {
-            std::cout << "y = " << i << "\n";
-            std::vector<Eigen::VectorXd> row_orto;
-            std::vector<Eigen::VectorXd> row_non_orto;
-            for (int x = 0; x < x_max; x++) {
-                //std::cout << "x = " << x << "\n";
-                // Извлекаем wave_vector: для каждого t берем wave_data[t][i][x]
-                Eigen::VectorXd wave_vector(T);
-                for (int t = 0; t < T; t++) {
-                    wave_vector[t] = wave_data[t][i][x];
-                }
-                // Извлекаем smoothed_basis: создаём матрицу размером (n_basis x T)
-                Eigen::MatrixXd smoothed_basis(n_basis, T);
-                for (int b = 0; b < n_basis; b++) {
+            // Capture i by value; capture wave_data and fk_data by reference.
+            futures.push_back(std::async(std::launch::async, [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<Eigen::VectorXd> {
+                std::vector<Eigen::VectorXd> row_orto;
+                // Process each x in the row.
+                for (int x = 0; x < x_max; x++) {
+                    // Build wave_vector from wave_data[t][i][x] for each t.
+                    Eigen::VectorXd wave_vector(T);
                     for (int t = 0; t < T; t++) {
-                        smoothed_basis(b, t) = fk_data[b][t][i][x];
+                        wave_vector[t] = wave_data[t][i][x];
                     }
+                    // Build the smoothed_basis matrix (n_basis x T) from fk_data[b][t][i][x].
+                    Eigen::MatrixXd smoothed_basis(n_basis, T);
+                    for (int b = 0; b < n_basis; b++) {
+                        for (int t = 0; t < T; t++) {
+                            smoothed_basis(b, t) = fk_data[b][t][i][x];
+                        }
+                    }
+                    // Ensure dimensions match.
+                    if (smoothed_basis.cols() != wave_vector.size()) continue;
+                    // Compute the orthogonal approximation coefficients.
+                    Eigen::VectorXd coefs_orto = approximate_with_non_orthogonal_basis_orto(wave_vector, smoothed_basis);
+                    row_orto.push_back(coefs_orto);
                 }
-                if (smoothed_basis.cols() != wave_vector.size()) continue;
-                // Вычисляем коэффициенты обычной аппроксимации (least squares)
-                //auto [approx_non_orto, coefs_non_orto] = approximate_with_non_orthogonal_basis(wave_vector, smoothed_basis);
-                // Вычисляем коэффициенты ортогональной аппроксимации (из approx_orto.cpp)
-                Eigen::VectorXd coefs_orto = approximate_with_non_orthogonal_basis_orto(wave_vector, smoothed_basis);
-                //row_non_orto.push_back(coefs_non_orto);
-                row_orto.push_back(coefs_orto);
-            }
+                return row_orto;
+                }));
+        }
+
+        // Retrieve the results in order and push them into statistics_orto.
+        for (auto& future : futures) {
+            auto row_orto = future.get();
             if (!row_orto.empty()) {
                 statistics_orto.push_back(row_orto);
-                //statistics_non_orto.push_back(row_non_orto);
             }
-            /*if (i == 1)
-                return;*/
         }
 
     }
@@ -158,7 +165,7 @@ void save_and_plot_statistics(const std::string& root_folder,
     CoeffMatrix statistics_orto;
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
-    std::string filename_orto = "case_statistics_hd_y_" + basis + "_o.json";
+    std::string filename_orto = "case_statistics_hd_y_" + basis + bath + "_o.json";
     //std::string filename_non_orto = "case_statistics_hd_y_" + basis + "_no.csv";
 
     save_coefficients_json(filename_orto, statistics_orto);

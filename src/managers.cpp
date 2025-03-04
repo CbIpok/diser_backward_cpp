@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include <future>
+#include <regex>
 namespace fs = std::filesystem;
 
 // Функция для открытия NetCDF-файла с проверкой ошибок
@@ -80,15 +81,49 @@ std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_re
 }
 
 
+// Функция для извлечения индекса из имени файла
+int extractIndex(const fs::path& filePath) {
+    // Регулярное выражение для поиска шаблона _<число>.nc
+    std::regex regexPattern("_(\\d+)\\.nc");
+    std::smatch match;
+    std::string filename = filePath.filename().string();
+    if (std::regex_search(filename, match, regexPattern)) {
+        return std::stoi(match[1].str());
+    }
+    // Если индекс не найден, возвращаем максимальное значение,
+    // чтобы файл оказался в конце отсортированного списка.
+    return std::numeric_limits<int>::max();
+}
+
+// Функция для получения отсортированного списка файлов
+std::vector<fs::path> getSortedFileList(const std::string& folder) {
+    std::vector<fs::path> files;
+
+    // Перебираем все файлы в заданной директории
+    for (const auto& entry : fs::directory_iterator(folder)) {
+        if (entry.is_regular_file()) {
+            fs::path filePath = entry.path();
+            // Проверяем, что файл имеет расширение ".nc" и содержит символ '_'
+            if (filePath.extension() == ".nc" &&
+                filePath.filename().string().find('_') != std::string::npos) {
+                files.push_back(filePath);
+            }
+        }
+    }
+
+    // Сортируем файлы по числовому значению, извлечённому из имени файла
+    std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+        return extractIndex(a) < extractIndex(b);
+        });
+
+    return files;
+}
 
 std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_region(int y_start, int y_end) {
     std::vector<std::vector<std::vector<std::vector<double>>>> fk;
-    std::vector<fs::path> files;
-    for (const auto& entry : fs::directory_iterator(folder)) {
-        if (entry.path().extension() == ".nc")
-            files.push_back(entry.path());
-    }
-    std::sort(files.begin(), files.end());
+    std::vector<fs::path> files = getSortedFileList(folder);
+   
+   
 
     std::vector<std::future<std::vector<std::vector<std::vector<double>>>>> futures;
 
