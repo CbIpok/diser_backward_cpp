@@ -188,11 +188,11 @@ int main() {
     // Параметры проекта
     std::string root_folder = "T:/tsunami_res_folder";
     std::string cache_folder = "C:/dmitrienkomy/cache/";
-    std::string bath = "y_200_2000";
+    std::string bath = "parabola_200_2000";
     std::string wave = "gaus_single_2_h";
     std::string basis = "basis_48";
     std::vector<std::string> folderNames = {
-        "basis_6",
+        /*"basis_6",
         "basis_8",
         "basis_9",
         "basis_10",
@@ -200,7 +200,7 @@ int main() {
         "basis_15",
         "basis_16",
         "basis_18",
-        "basis_20",
+        "basis_20",*/
         "basis_24",
         "basis_25",
         "basis_30",

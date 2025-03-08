@@ -54,7 +54,7 @@ void calculate_statistics(const std::string& root_folder,
 
     int width = area_config.all[0];
     int height = area_config.all[1];
-    int batch_size = 64*6/count_from_name(basis);
+    int batch_size = 64*3*6/count_from_name(basis);
     int y_start_init = 75;
 
     statistics_orto.clear();
