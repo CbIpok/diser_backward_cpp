@@ -10,32 +10,12 @@
 
 using json = nlohmann::json;
 
-//// Реализация неортогональной аппроксимации с использованием QR-разложения
-//std::pair<Eigen::VectorXd, Eigen::VectorXd> approximate_with_non_orthogonal_basis(const Eigen::VectorXd& x, const Eigen::MatrixXd& basis) {
-//    // Решаем систему методом наименьших квадратов:
-//    Eigen::VectorXd coeffs = basis.transpose().colPivHouseholderQr().solve(x);
-//    // Вычисляем аппроксимацию (не используется далее)
-//    Eigen::VectorXd approximation = basis.transpose() * coeffs;
-//    return { approximation, coeffs };
-//}
-
-//
-// Функция calculate_statistics
-// Загружает данные из NetCDF (WaveManager и BasisManager), затем для каждого пикселя региона
-// извлекает вектор времени (wave_vector) и соответствующий базис (smoothed_basis) и вычисляет
-// коэффициенты аппроксимации обычным методом (non orto) и методом с ортогонализацией (orto).
-//
-
 int count_from_name(const std::string& name) {
-    // Находим позицию символа '_'
     std::size_t underscorePos = name.find('_');
     if (underscorePos != std::string::npos) {
-        // Извлекаем подстроку после '_'
         std::string numberPart = name.substr(underscorePos + 1);
-        // Преобразуем в целое число
         return std::stoi(numberPart);
     }
-    // Если '_' не найден, вернём 0 или любое другое значение по умолчанию
     return 0;
 }
 
@@ -45,6 +25,7 @@ void calculate_statistics(const std::string& root_folder,
     const std::string& basis,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto) {
+
     // Формирование путей
     std::string basis_path = root_folder + "/" + bath + "/" + basis;
     std::string wave_nc_path = root_folder + "/" + bath + "/" + wave + ".nc";
@@ -54,20 +35,34 @@ void calculate_statistics(const std::string& root_folder,
 
     int width = area_config.all[0];
     int height = area_config.all[1];
-    int batch_size = 64*3*6/count_from_name(basis);
+    int gigabyte_size = 116;
+    int memory_in_gb = 16;
+    int batch_size = gigabyte_size*memory_in_gb / count_from_name(basis);
     int y_start_init = 75;
 
     statistics_orto.clear();
 
     for (int y_start = y_start_init; y_start < height / 4; y_start += batch_size) {
+        auto start = std::chrono::high_resolution_clock::now();
         int y_end = std::min(y_start + batch_size, height);
+        // Получаем 3D view для волновых данных
         auto wave_data = wave_manager.load_mariogramm_by_region(y_start, y_end);
+        // Получаем вектор 3D view для basis-данных
         auto fk_data = basis_manager.get_fk_region(y_start, y_end);
-        if (wave_data.empty() || fk_data.empty()) continue;
-        int T = wave_data.size();
-        int region_height = wave_data[0].size();
-        int region_width = wave_data[0][0].size();
-        int n_basis = fk_data.size();
+        // Фиксируем конечное время
+        auto end = std::chrono::high_resolution_clock::now();
+
+        // Вычисляем продолжительность выполнения в миллисекундах
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+        std::cout << "time: " << duration << " мс" << std::endl;
+        // Если данные не получены, переходим к следующему блоку
+        if (wave_data.data.empty() || fk_data.empty()) continue;
+
+        int T = wave_data.T_dim;
+        int region_height = wave_data.Y_dim;
+        int region_width = wave_data.X_dim;
+        int n_basis = static_cast<int>(fk_data.size());
 
         int x_max = width / 4;
         std::cout << "loaded\n";
@@ -79,16 +74,16 @@ void calculate_statistics(const std::string& root_folder,
             futures.push_back(std::async(std::launch::async, [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<CoefficientData> {
                 std::vector<CoefficientData> row_data;
                 for (int x = 0; x < x_max; x++) {
-                    // Сборка вектора значений сигнала для текущего пикселя
+                    // Формируем вектор значений сигнала для текущего пикселя
                     Eigen::VectorXd wave_vector(T);
                     for (int t = 0; t < T; t++) {
-                        wave_vector[t] = wave_data[t][i][x];
+                        wave_vector[t] = wave_data(t, i, x);
                     }
-                    // Сборка матрицы базиса (n_basis x T)
+                    // Формируем матрицу базиса (n_basis x T)
                     Eigen::MatrixXd smoothed_basis(n_basis, T);
                     for (int b = 0; b < n_basis; b++) {
                         for (int t = 0; t < T; t++) {
-                            smoothed_basis(b, t) = fk_data[b][t][i][x];
+                            smoothed_basis(b, t) = fk_data[b](t, i, x);
                         }
                     }
                     if (smoothed_basis.cols() != wave_vector.size()) continue;
@@ -96,7 +91,7 @@ void calculate_statistics(const std::string& root_folder,
                     // Вычисление коэффициентов аппроксимации методом с ортогонализацией
                     Eigen::VectorXd coefs_orto = approximate_with_non_orthogonal_basis_orto(wave_vector, smoothed_basis);
 
-                    // Вычисление аппроксимированного сигнала:
+                    // Вычисление аппроксимированного сигнала
                     Eigen::VectorXd approximation = smoothed_basis.transpose() * coefs_orto;
                     // Вычисление среднеквадратичной ошибки (RMSE)
                     double error = std::sqrt((wave_vector - approximation).squaredNorm() / wave_vector.size());
@@ -119,38 +114,11 @@ void calculate_statistics(const std::string& root_folder,
     }
 }
 
-//// Функция сохранения двумерного массива коэффициентов в CSV-файл
-//void save_coefficients_csv(const std::string& filename, const CoeffMatrix& coeffs) {
-//    std::ofstream ofs(filename);
-//    if (!ofs.is_open()) {
-//        std::cerr << "Не удалось открыть файл " << filename << " для записи.\n";
-//        return;
-//    }
-//    // Каждая строка – один ряд статистики, каждая ячейка содержит вектор коэффициентов (числа разделены пробелами)
-//    for (const auto& row : coeffs) {
-//        bool firstCell = true;
-//        for (const auto& vec : row) {
-//            if (!firstCell) ofs << ",";
-//            firstCell = false;
-//            std::ostringstream oss;
-//            for (int i = 0; i < vec.size(); i++) {
-//                oss << vec[i];
-//                if (i + 1 < vec.size()) oss << " ";
-//            }
-//            ofs << oss.str();
-//        }
-//        ofs << "\n";
-//    }
-//    ofs.close();
-//    std::cout << "Сохранено: " << filename << "\n";
-//}
-
 void save_coefficients_json(const std::string& filename, const CoeffMatrix& coeffs) {
     nlohmann::json j;
     for (size_t row = 0; row < coeffs.size(); ++row) {
         for (size_t col = 0; col < coeffs[row].size(); ++col) {
             std::string key = "[" + std::to_string(row) + "," + std::to_string(col) + "]";
-            // Преобразование Eigen::VectorXd в std::vector<double>
             std::vector<double> vec(coeffs[row][col].coefs.data(),
                 coeffs[row][col].coefs.data() + coeffs[row][col].coefs.size());
             double error = coeffs[row][col].aprox_error;
@@ -167,7 +135,6 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     std::cout << "Сохранено: " << filename << "\n";
 }
 
-// Функция save_and_plot_statistics: вычисляет статистику и сохраняет коэффициенты в CSV
 void save_and_plot_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
@@ -177,10 +144,7 @@ void save_and_plot_statistics(const std::string& root_folder,
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
     std::string filename_orto = "case_statistics_hd_y_" + basis + bath + "_o.json";
-    //std::string filename_non_orto = "case_statistics_hd_y_" + basis + "_no.csv";
 
     save_coefficients_json(filename_orto, statistics_orto);
-    /*save_coefficients_json(filename_non_orto, statistics_non_orto);*/
-
     // Визуализация не реализована – коэффициенты можно открыть в Excel или передать в Python для построения графиков.
 }

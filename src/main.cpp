@@ -192,18 +192,18 @@ int main() {
     std::string wave = "gaus_single_2_h";
     std::string basis = "basis_48";
     std::vector<std::string> folderNames = {
-        /*"basis_6",
-        "basis_8",
-        "basis_9",
-        "basis_10",
-        "basis_12",
-        "basis_15",
-        "basis_16",
-        "basis_18",
-        "basis_20",*/
-        "basis_24",
-        "basis_25",
-        "basis_30",
+        //"basis_6",
+        //"basis_8",
+        //"basis_9",
+        //"basis_10",
+        //"basis_12",
+        //"basis_15",
+        //"basis_16",
+        //"basis_18",
+        //"basis_20",
+        //"basis_24",
+        //"basis_25",
+        //"basis_30",
         "basis_36",
         "basis_40",
         "basis_48"
@@ -215,6 +215,7 @@ int main() {
     // Вычисляем и сохраняем статистику аппроксимации
     for (auto& basis : folderNames)
     {
+        save_and_plot_statistics(cache_folder, bath, wave, basis, area_config);
         runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);
     }
     return 0;
