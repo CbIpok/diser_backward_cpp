@@ -1,6 +1,7 @@
 #include "managers.h"
 #include <netcdf.h>
 #include <iostream>
+<<<<<<< Updated upstream
 #include <filesystem>
 #include <algorithm>
 #include <vector>
@@ -13,6 +14,17 @@ int open_nc_file(const std::string& filename, int& ncid) {
     int retval = nc_open(filename.c_str(), NC_NOWRITE, &ncid);
     if (retval != NC_NOERR) {
         std::cerr << "Ошибка открытия файла " << filename << " : " << nc_strerror(retval) << std::endl;
+=======
+#include <adios2.h>
+//
+// Функция для открытия HDF5-файла с проверкой ошибок.
+//
+int open_nc_file(const std::string& filename, hid_t& file) {
+    file = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (file < 0) {
+        std::cerr << "Ошибка открытия файла " << filename << std::endl;
+        return -1;
+>>>>>>> Stashed changes
     }
     return retval;
 }
@@ -21,6 +33,7 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     std::cout << "loading: " << file << std::endl;
     int ncid;
 
+<<<<<<< Updated upstream
     if (open_nc_file(file.string(), ncid) != NC_NOERR)
         return data;
 
@@ -38,8 +51,48 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
         std::cerr << "Ожидалось 3 измерения в файле " << file.string() << std::endl;
         nc_close(ncid);
         return data;
+=======
+//
+// Изменённая функция чтения данных из HDF5-файла: данные считываются напрямую
+// в непрерывный буфер, представленный Array3DView, без промежуточного копирования.
+//
+Array3DView<double> read_nc_file(const fs::path& filePath, int y_start, int y_end)
+{
+    std::cout << "loading: " << filePath << std::endl;
+
+    // Инициализация ADIOS2 (используем настройки по умолчанию)
+    adios2::ADIOS adios;
+    adios2::IO io = adios.DeclareIO("ReadIO");
+    io.SetEngine("BPFile");
+    // Открываем файл в режиме чтения
+    adios2::Engine reader = io.Open(filePath.string(), adios2::Mode::Read);
+    if (!reader)
+    {
+        throw std::runtime_error("Ошибка открытия файла " + filePath.string());
     }
 
+    // Начинаем шаг чтения (для файлового режима BeginStep сразу после открытия)
+    reader.BeginStep();
+
+    // Получаем переменную "height"
+    adios2::Variable<double> var = io.InquireVariable<double>("height");
+    if (!var)
+    {
+        throw std::runtime_error("Переменная 'height' не найдена в файле " + filePath.string());
+    }
+
+    // Получаем размеры глобального массива (ожидается 3 измерения: [T, Y, X])
+    std::vector<size_t> shape = var.Shape();
+    if (shape.size() != 3)
+    {
+        throw std::runtime_error("Ожидалось 3 измерения в файле " + filePath.string());
+>>>>>>> Stashed changes
+    }
+    size_t T = shape[0];
+    size_t Y = shape[1];
+    size_t X = shape[2];
+
+<<<<<<< Updated upstream
     int dimids[3];
     size_t T, Y, X;
     nc_inq_vardimid(ncid, varid, dimids);
@@ -76,6 +129,26 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
         }
     }
     return data;
+=======
+    // Корректировка y_end, если выходит за пределы данных
+    int local_y_end = y_end > static_cast<int>(Y) ? static_cast<int>(Y) : y_end;
+    size_t region_height = local_y_end - y_start;
+
+    // Определяем область (selection) для чтения: [0, y_start, 0] размером [T, region_height, X]
+    std::vector<size_t> start{ 0, static_cast<size_t>(y_start), 0 };
+    std::vector<size_t> count{ T, region_height, X };
+    var.SetSelection({ start, count });
+
+    // Создаем объект для хранения прочитанных данных
+    Array3DView<double> view(T, region_height, X);
+
+    // Запрос на чтение данных в буфер view.data
+    reader.Get<double>(var, view.data.data());
+    reader.EndStep();
+    reader.Close();
+
+    return view;
+>>>>>>> Stashed changes
 }
 
 // Реализация метода WaveManager::load_mariogramm_by_region с использованием netcdf.h
@@ -100,6 +173,7 @@ int extractIndex(const fs::path& filePath) {
 }
 
 // Функция для получения отсортированного списка файлов
+<<<<<<< Updated upstream
 std::vector<fs::path> getSortedFileList(const std::string& folder) {
     std::vector<fs::path> files;
 
@@ -127,6 +201,33 @@ std::vector<fs::path> getSortedFileList(const std::string& folder) {
 std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_region(int y_start, int y_end) {
     std::vector<std::vector<std::vector<std::vector<double>>>> fk;
     std::vector<fs::path> files = getSortedFileList(folder);
+=======
+//
+std::vector<fs::path> getSortedFolderList(const std::string& folder) {
+    std::vector<fs::path> directories;
+    for (const auto& entry : fs::directory_iterator(folder)) {
+        if (entry.is_directory()) {
+            fs::path dirPath = entry.path();
+            if (dirPath.extension() == ".bp" &&
+                dirPath.filename().string().find('_') != std::string::npos) {
+                directories.push_back(dirPath);
+            }
+        }
+    }
+    std::sort(directories.begin(), directories.end(), [](const fs::path& a, const fs::path& b) {
+        return extractIndex(a) < extractIndex(b);
+        });
+    return directories;
+}
+
+//
+// Реализация метода BasisManager::get_fk_region с использованием Array3DView.
+// Для каждого файла из каталога создаётся 3D view, возвращаемый в векторе.
+//
+std::vector<Array3DView<double>> BasisManager::get_fk_region(int y_start, int y_end) {
+    std::vector<Array3DView<double>> fk;
+    std::vector<fs::path> files = getSortedFolderList(folder);
+>>>>>>> Stashed changes
 
     // Последовательная обработка файлов
     for (const auto& file : files) {

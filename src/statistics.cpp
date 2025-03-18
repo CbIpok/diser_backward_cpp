@@ -47,14 +47,20 @@ void calculate_statistics(const std::string& root_folder,
     CoeffMatrix& statistics_orto) {
     // Формирование путей
     std::string basis_path = root_folder + "/" + bath + "/" + basis;
-    std::string wave_nc_path = root_folder + "/" + bath + "/" + wave + ".nc";
+    std::string wave_nc_path = root_folder + "/" + bath + "/" + wave + ".bp";
 
     BasisManager basis_manager(basis_path);
     WaveManager wave_manager(wave_nc_path);
 
     int width = area_config.all[0];
     int height = area_config.all[1];
+<<<<<<< Updated upstream
     int batch_size = 64*3*6/count_from_name(basis);
+=======
+    int gigabyte_size = 116;
+    int memory_in_gb = 24;
+    int batch_size = gigabyte_size*memory_in_gb / (count_from_name(basis) + 1);
+>>>>>>> Stashed changes
     int y_start_init = 75;
 
     statistics_orto.clear();
@@ -159,12 +165,12 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     }
     std::ofstream ofs(filename);
     if (!ofs.is_open()) {
-        std::cerr << "Не удалось открыть файл " << filename << " для записи.\n";
+        std::cerr << "cant open the " << filename << " for read.\n";
         return;
     }
     ofs << j.dump(4);
     ofs.close();
-    std::cout << "Сохранено: " << filename << "\n";
+    std::cout << "saved: " << filename << "\n";
 }
 
 // Функция save_and_plot_statistics: вычисляет статистику и сохраняет коэффициенты в CSV
@@ -176,8 +182,12 @@ void save_and_plot_statistics(const std::string& root_folder,
     CoeffMatrix statistics_orto;
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
+<<<<<<< Updated upstream
     std::string filename_orto = "case_statistics_hd_y_" + basis + bath + "_o.json";
     //std::string filename_non_orto = "case_statistics_hd_y_" + basis + "_no.csv";
+=======
+    std::string filename_orto = "T:/tsumami_temp_shared_folder/async/case_statistics_async_" + wave + "_" + basis + "_" + bath + "_all.json";
+>>>>>>> Stashed changes
 
     save_coefficients_json(filename_orto, statistics_orto);
     /*save_coefficients_json(filename_non_orto, statistics_non_orto);*/
