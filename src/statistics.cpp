@@ -1,4 +1,5 @@
-﻿#include "statistics.h"
+﻿#define NOMINMAX 
+#include "statistics.h"
 #include "approx_orto.h"
 #include <Eigen/Dense>
 #include <fstream>
@@ -6,36 +7,16 @@
 #include <sstream>
 #include <future>
 #include <algorithm>
-#include "json.hpp"  // ����������� ���������� nlohmann::json
+#include "json.hpp"
 
 using json = nlohmann::json;
 
-//// ���������� ��������������� ������������� � �������������� QR-����������
-//std::pair<Eigen::VectorXd, Eigen::VectorXd> approximate_with_non_orthogonal_basis(const Eigen::VectorXd& x, const Eigen::MatrixXd& basis) {
-//    // ������ ������� ������� ���������� ���������:
-//    Eigen::VectorXd coeffs = basis.transpose().colPivHouseholderQr().solve(x);
-//    // ��������� ������������� (�� ������������ �����)
-//    Eigen::VectorXd approximation = basis.transpose() * coeffs;
-//    return { approximation, coeffs };
-//}
-
-//
-// ������� calculate_statistics
-// ��������� ������ �� NetCDF (WaveManager � BasisManager), ����� ��� ������� ������� �������
-// ��������� ������ ������� (wave_vector) � ��������������� ����� (smoothed_basis) � ���������
-// ������������ ������������� ������� ������� (non orto) � ������� � ���������������� (orto).
-//
-
 int count_from_name(const std::string& name) {
-    // ������� ������� ������� '_'
     std::size_t underscorePos = name.find('_');
     if (underscorePos != std::string::npos) {
-        // ��������� ��������� ����� '_'
         std::string numberPart = name.substr(underscorePos + 1);
-        // ����������� � ����� �����
         return std::stoi(numberPart);
     }
-    // ���� '_' �� ������, ������ 0 ��� ����� ������ �������� �� ���������
     return 0;
 }
 
@@ -45,7 +26,7 @@ void calculate_statistics(const std::string& root_folder,
     const std::string& basis,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto) {
-    // ������������ �����
+
     std::string basis_path = root_folder + "/" + bath + "/" + basis;
     std::string wave_nc_path = root_folder + "/" + bath + "/" + wave + ".nc";
 
@@ -63,36 +44,41 @@ void calculate_statistics(const std::string& root_folder,
 
     for (int y_start = y_start_init; y_start < height / 4; y_start += batch_size) {
         int y_end = std::min(y_start + batch_size, height);
-        auto wave_data = wave_manager.load_mariogramm_by_region(y_start, y_end);
-        auto fk_data = basis_manager.get_fk_region(y_start, y_end);
-        if (wave_data.empty() || fk_data.empty()) continue;
-        int T = wave_data.size();
-        int region_height = wave_data[0].size();
-        int region_width = wave_data[0][0].size();
-        int n_basis = fk_data.size();
+        // Загружаем данные в виде плоских векторов.
+        std::vector<double> wave_data = wave_manager.load_mariogramm_by_region(y_start, y_end);
+        std::vector<std::vector<double>> fk_data = basis_manager.get_fk_region(y_start, y_end);
+        if (wave_data.empty() || fk_data.empty())
+            continue;
 
+        int region_height = y_end - y_start;
+        // Предполагаем, что x_max = width / 4 (как в оригинале)
         int x_max = width / 4;
-        std::cout << "loaded\n";
+        int totalElements = static_cast<int>(wave_data.size());
+        // Вычисляем T, зная, что totalElements = T * region_height * x_max.
+        int T = totalElements / (region_height * x_max);
+        int n_basis = static_cast<int>(fk_data.size());
+
+        std::cout << "loaded region: y_start=" << y_start << ", y_end=" << y_end << "\n";
 
         std::vector<std::future<std::vector<CoefficientData>>> futures;
         futures.reserve(region_height);
 
         for (int i = 0; i < region_height; i++) {
-            
-
-            // Запускаем новую задачу для обработки строки
             futures.push_back(std::async(std::launch::async,
                 [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<CoefficientData> {
                     std::vector<CoefficientData> row_data;
+                    // Данные организованы как [region_height][x_max][T]
                     for (int x = 0; x < x_max; x++) {
                         Eigen::VectorXd wave_vector(T);
                         for (int t = 0; t < T; t++) {
-                            wave_vector[t] = wave_data[t][i][x];
+                            int idx = i * (x_max * T) + x * T + t;
+                            wave_vector[t] = wave_data[idx];
                         }
                         Eigen::MatrixXd smoothed_basis(n_basis, T);
                         for (int b = 0; b < n_basis; b++) {
                             for (int t = 0; t < T; t++) {
-                                smoothed_basis(b, t) = fk_data[b][t][i][x];
+                                int idx = i * (x_max * T) + x * T + t;
+                                smoothed_basis(b, t) = fk_data[b][idx];
                             }
                         }
                         if (smoothed_basis.cols() != wave_vector.size())
@@ -111,7 +97,6 @@ void calculate_statistics(const std::string& root_folder,
             ));
         }
 
-        // После завершения цикла ожидаем завершения оставшихся задач
         for (auto& future : futures) {
             auto row_data = future.get();
             if (!row_data.empty())
@@ -120,38 +105,11 @@ void calculate_statistics(const std::string& root_folder,
     }
 }
 
-//// ������� ���������� ���������� ������� ������������� � CSV-����
-//void save_coefficients_csv(const std::string& filename, const CoeffMatrix& coeffs) {
-//    std::ofstream ofs(filename);
-//    if (!ofs.is_open()) {
-//        std::cerr << "�� ������� ������� ���� " << filename << " ��� ������.\n";
-//        return;
-//    }
-//    // ������ ������ � ���� ��� ����������, ������ ������ �������� ������ ������������� (����� ��������� ���������)
-//    for (const auto& row : coeffs) {
-//        bool firstCell = true;
-//        for (const auto& vec : row) {
-//            if (!firstCell) ofs << ",";
-//            firstCell = false;
-//            std::ostringstream oss;
-//            for (int i = 0; i < vec.size(); i++) {
-//                oss << vec[i];
-//                if (i + 1 < vec.size()) oss << " ";
-//            }
-//            ofs << oss.str();
-//        }
-//        ofs << "\n";
-//    }
-//    ofs.close();
-//    std::cout << "���������: " << filename << "\n";
-//}
-
 void save_coefficients_json(const std::string& filename, const CoeffMatrix& coeffs) {
     nlohmann::json j;
     for (size_t row = 0; row < coeffs.size(); ++row) {
         for (size_t col = 0; col < coeffs[row].size(); ++col) {
             std::string key = "[" + std::to_string(row) + "," + std::to_string(col) + "]";
-            // �������������� Eigen::VectorXd � std::vector<double>
             std::vector<double> vec(coeffs[row][col].coefs.data(),
                 coeffs[row][col].coefs.data() + coeffs[row][col].coefs.size());
             double error = coeffs[row][col].aprox_error;
@@ -160,15 +118,14 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     }
     std::ofstream ofs(filename);
     if (!ofs.is_open()) {
-        std::cerr << "�� ������� ������� ���� " << filename << " ��� ������.\n";
+        std::cerr << "Cannot open file " << filename << " for writing.\n";
         return;
     }
     ofs << j.dump(4);
     ofs.close();
-    std::cout << "���������: " << filename << "\n";
+    std::cout << "Saved: " << filename << "\n";
 }
 
-// ������� save_and_plot_statistics: ��������� ���������� � ��������� ������������ � CSV
 void save_and_plot_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
@@ -177,11 +134,6 @@ void save_and_plot_statistics(const std::string& root_folder,
     CoeffMatrix statistics_orto;
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
-    std::string filename_orto = "case_statistics_hd_y_" + basis + bath + "_o.json";
-    //std::string filename_non_orto = "case_statistics_hd_y_" + basis + "_no.csv";
-
+    std::string filename_orto = "E:/tsunami_res_dir/coefs_nessesary/case_statistics_hd_y_" + basis + bath + "_o.json";
     save_coefficients_json(filename_orto, statistics_orto);
-    /*save_coefficients_json(filename_non_orto, statistics_non_orto);*/
-
-    // ������������ �� ����������� � ������������ ����� ������� � Excel ��� �������� � Python ��� ���������� ��������.
 }
