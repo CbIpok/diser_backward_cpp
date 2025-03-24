@@ -36,11 +36,13 @@ add_executable(TsunamiCoefficientsCalculator
     src/json.hpp
     src/managers.cpp
     src/statistics.h
-    src/statistics.cpp
-)
+    src/statistics.cpp)
 
 # Линкуем с библиотекой netCDF, подключенной через vcpkg
 target_link_libraries(TsunamiCoefficientsCalculator PRIVATE netCDF::netcdf)
 
 # Если требуется, можно добавить явное указание для Eigen (хотя FetchContent уже подключает заголовки):
 target_include_directories(TsunamiCoefficientsCalculator PRIVATE ${eigen_SOURCE_DIR})
+
+add_executable(nc_reader_child src/nc_reader_child.cpp)
+target_link_libraries(nc_reader_child PRIVATE netCDF::netcdf)

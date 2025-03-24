@@ -54,8 +54,8 @@ void calculate_statistics(const std::string& root_folder,
 
     int width = area_config.all[0];
     int height = area_config.all[1];
-    int gigabyte_size = 90;
-    int memory_in_gb = 30;
+    int gigabyte_size = 96;
+    int memory_in_gb = 48;
     int batch_size = gigabyte_size * memory_in_gb / (count_from_name(basis) + 1);
     int y_start_init = 75;
 
@@ -78,24 +78,7 @@ void calculate_statistics(const std::string& root_folder,
         futures.reserve(region_height);
 
         for (int i = 0; i < region_height; i++) {
-            // Если уже запущено 10 задач, ждем, пока хотя бы одна завершится
-            while (futures.size() >= 9) {
-                for (auto it = futures.begin(); it != futures.end();) {
-                    // Проверяем, готов ли future
-                    if (it->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-                        auto row_data = it->get();
-                        if (!row_data.empty())
-                            statistics_orto.push_back(row_data);
-                        it = futures.erase(it);
-                    }
-                    else {
-                        ++it;
-                    }
-                }
-                // Если по-прежнему 10 активных задач, подождем немного
-                if (futures.size() >= 10)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
+            
 
             // Запускаем новую задачу для обработки строки
             futures.push_back(std::async(std::launch::async,
