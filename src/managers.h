@@ -1,68 +1,32 @@
-#ifndef MANAGERS_H
+п»ї#ifndef MANAGERS_H
 #define MANAGERS_H
 
 #include <string>
 #include <vector>
 #include "stable_data_structs.h"
-#include "hdf5.h"
-#include <filesystem>
-#include <stdexcept>
-#include <regex>
-#include <limits>
-#include <future>
-#include <algorithm>
 
-namespace fs = std::filesystem;
-
-// Шаблонная обёртка для представления 3D-массива в виде непрерывного блока памяти
-template <typename T>
-struct Array3DView {
-    std::vector<T> data; // непрерывный буфер
-    hsize_t T_dim, Y_dim, X_dim;
-
-    Array3DView(hsize_t T, hsize_t Y, hsize_t X)
-        : data(T* Y* X), T_dim(T), Y_dim(Y), X_dim(X) {
-    }
-
-    // Доступ к элементу (t, y, x)
-    T& operator()(hsize_t t, hsize_t y, hsize_t x) {
-        return data[t * Y_dim * X_dim + y * X_dim + x];
-    }
-
-    const T& operator()(hsize_t t, hsize_t y, hsize_t x) const {
-        return data[t * Y_dim * X_dim + y * X_dim + x];
-    }
-};
-
-// Функция для открытия HDF5-файла с проверкой ошибок.
-int open_nc_file(const std::string& filename, hid_t& file);
-
-// Функция чтения данных из HDF5-файла, возвращающая 3D view.
-// Считываются данные из набора данных "height" для региона [y_start, y_end)
-Array3DView<double> read_nc_file(const fs::path& filePath, int y_start, int y_end);
-
-// Класс для работы с данными basis, содержащимися в NetCDF-файлах
+// ГЉГ«Г Г±Г± Г¤Г«Гї Г°Г ГЎГ®ГІГ» Г± Г¤Г Г­Г­Г»Г¬ГЁ basis, Г±Г®Г¤ГҐГ°Г¦Г Г№ГЁГ¬ГЁГ±Гї Гў NetCDF-ГґГ Г©Г«Г Гµ
 class BasisManager {
 public:
-    std::string folder; // путь к каталогу с basis-файлами (NetCDF-файлы)
+    std::string folder; // ГЇГіГІГј ГЄ ГЄГ ГІГ Г«Г®ГЈГі Г± basis-ГґГ Г©Г«Г Г¬ГЁ (NetCDF-ГґГ Г©Г«Г»)
 
     explicit BasisManager(const std::string& folder_) : folder(folder_) {}
 
-    // Функция чтения данных basis для региона [y_start, y_end)
-    // Возвращает вектор 3D view: [num_files]{[T][region_height][X]}
-    std::vector<Array3DView<double>> get_fk_region(int y_start, int y_end);
+    // Г”ГіГ­ГЄГ¶ГЁГї Г·ГІГҐГ­ГЁГї Г¤Г Г­Г­Г»Гµ basis Г¤Г«Гї Г°ГҐГЈГЁГ®Г­Г  [y_start, y_end)
+    // Г‚Г®Г§ГўГ°Г Г№Г ГҐГІ 4D Г¬Г Г±Г±ГЁГў: [num_files][T][region_height][X]
+    std::vector<std::vector<std::vector<std::vector<double>>>> get_fk_region(int y_start, int y_end);
 };
 
-// Класс для работы с мариограммами (Wave data)
+// ГЉГ«Г Г±Г± Г¤Г«Гї Г°Г ГЎГ®ГІГ» Г± Г¬Г Г°ГЁГ®ГЈГ°Г Г¬Г¬Г Г¬ГЁ (Wave data)
 class WaveManager {
 public:
-    std::string nc_file; // путь к NetCDF-файлу с мариограммами
+    std::string nc_file; // ГЇГіГІГј ГЄ NetCDF-ГґГ Г©Г«Гі Г± Г¬Г Г°ГЁГ®ГЈГ°Г Г¬Г¬Г Г¬ГЁ
 
     explicit WaveManager(const std::string& nc_file_) : nc_file(nc_file_) {}
 
-    // Функция загрузки данных переменной "height" для региона [y_start, y_end)
-    // Возвращает 3D view: [T][region_height][X]
-    Array3DView<double> load_mariogramm_by_region(int y_start, int y_end);
+    // Г”ГіГ­ГЄГ¶ГЁГї Г§Г ГЈГ°ГіГ§ГЄГЁ Г¤Г Г­Г­Г»Гµ ГЇГҐГ°ГҐГ¬ГҐГ­Г­Г®Г© "height" Г¤Г«Гї Г°ГҐГЈГЁГ®Г­Г  [y_start, y_end)
+    // Г‚Г®Г§ГўГ°Г Г№Г ГҐГІ 3D Г¬Г Г±Г±ГЁГў: [T][region_height][X]
+    std::vector<std::vector<std::vector<double>>> load_mariogramm_by_region(int y_start, int y_end);
 };
 
 #endif // MANAGERS_H

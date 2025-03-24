@@ -181,43 +181,32 @@ int main() {
     return 0;
 }
 #else
-int main() {
-
+int main(int argc, char* argv[]) {
     // Запускаем тесты, если необходимо
     run_tests();
+
+    // Проверка количества аргументов командной строки
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <bath> <wave> <basis>" << std::endl;
+        return 1;
+    }
+
+    // Получаем параметры из командной строки
+    std::string bath = argv[1];
+    std::string wave = argv[2];
+    std::string basis = argv[3];
+
     // Параметры проекта
     std::string root_folder = "T:/tsunami_res_folder";
-    std::string cache_folder = "C:/dmitrienkomy/cache/";
-    std::string bath = "parabola_200_2000";
-    std::string wave = "gaus_single_2_h";
-    std::string basis = "basis_48";
-    std::vector<std::string> folderNames = {
-        //"basis_6",
-        //"basis_8",
-        //"basis_9",
-        //"basis_10",
-        //"basis_12",
-        //"basis_15",
-        //"basis_16",
-        //"basis_18",
-        //"basis_20",
-        //"basis_24",
-        //"basis_25",
-        //"basis_30",
-        "basis_36",
-        "basis_40",
-        "basis_48"
-    };
+    std::string cache_folder = "C:/dmitrienkomy/cache";
 
     // Инициализация конфигурации области (файл zones.json должен быть корректным)
     AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones.json");
 
-    // Вычисляем и сохраняем статистику аппроксимации
-    for (auto& basis : folderNames)
-    {
-        save_and_plot_statistics(cache_folder, bath, wave, basis, area_config);
-        runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);
-    }
+    //// Вычисляем и сохраняем статистику аппроксимации с параметрами из командной строки
+    //save_and_plot_statistics(cache_folder, bath, wave, basis, area_config);
+    runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);
+
     return 0;
 }
 #endif

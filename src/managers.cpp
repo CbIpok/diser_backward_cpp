@@ -1,169 +1,144 @@
-#include "managers.h"
+п»ї#include "managers.h"
+#include <netcdf.h>
 #include <iostream>
+#include <filesystem>
+#include <algorithm>
+#include <vector>
+#include <future>
+#include <regex>
+namespace fs = std::filesystem;
 
-//
-// Функция для открытия HDF5-файла с проверкой ошибок.
-//
-int open_nc_file(const std::string& filename, hid_t& file) {
-    file = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-    if (file < 0) {
-        std::cerr << "Ошибка открытия файла " << filename << std::endl;
-        return -1;
+// Г”ГіГ­ГЄГ¶ГЁГї Г¤Г«Гї Г®ГІГЄГ°Г»ГІГЁГї NetCDF-ГґГ Г©Г«Г  Г± ГЇГ°Г®ГўГҐГ°ГЄГ®Г© Г®ГёГЁГЎГ®ГЄ
+int open_nc_file(const std::string& filename, int& ncid) {
+    int retval = nc_open(filename.c_str(), NC_NOWRITE, &ncid);
+    if (retval != NC_NOERR) {
+        std::cerr << "ГЋГёГЁГЎГЄГ  Г®ГІГЄГ°Г»ГІГЁГї ГґГ Г©Г«Г  " << filename << " : " << nc_strerror(retval) << std::endl;
     }
-    return 0;
+    return retval;
 }
+std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file, int y_start, int y_end) {
+    std::vector<std::vector<std::vector<double>>> data;
+    std::cout << "Loading file: " << file << std::endl;
+    int ncid;
 
-//
-// Изменённая функция чтения данных из HDF5-файла: данные считываются напрямую
-// в непрерывный буфер, представленный Array3DView, без промежуточного копирования.
-//
-Array3DView<double> read_nc_file(const fs::path& filePath, int y_start, int y_end) {
-    std::cout << "loading: " << filePath << std::endl;
+    if (open_nc_file(file.string(), ncid) != NC_NOERR)
+        return data;
 
-    hid_t file;
-    if (open_nc_file(filePath.string(), file) != 0)
-        throw std::runtime_error("Ошибка открытия файла");
-
-    // Открываем набор данных "height"
-    hid_t dataset = H5Dopen(file, "height", H5P_DEFAULT);
-    if (dataset < 0) {
-        std::cerr << "Ошибка открытия набора данных 'height' в файле " << filePath.string() << std::endl;
-        H5Fclose(file);
-        throw std::runtime_error("Ошибка открытия набора данных");
+    int varid;
+    int retval = nc_inq_varid(ncid, "height", &varid);
+    if (retval != NC_NOERR) {
+        std::cerr << "Variable 'height' not found in file " << file.string() << std::endl;
+        nc_close(ncid);
+        return data;
     }
 
-    // Получаем dataspace набора данных
-    hid_t dataspace = H5Dget_space(dataset);
-    if (dataspace < 0) {
-        std::cerr << "Ошибка получения dataspace набора данных 'height' в файле " << filePath.string() << std::endl;
-        H5Dclose(dataset);
-        H5Fclose(file);
-        throw std::runtime_error("Ошибка получения dataspace");
-    }
-
-    // Проверяем число измерений
-    int ndims = H5Sget_simple_extent_ndims(dataspace);
+    int ndims;
+    nc_inq_varndims(ncid, varid, &ndims);
     if (ndims != 3) {
-        std::cerr << "Ожидалось 3 измерения в файле " << filePath.string() << std::endl;
-        H5Sclose(dataspace);
-        H5Dclose(dataset);
-        H5Fclose(file);
-        throw std::runtime_error("Неверное число измерений");
+        std::cerr << "Expected 3 dimensions in file " << file.string() << std::endl;
+        nc_close(ncid);
+        return data;
     }
 
-    // Получаем размеры измерений
-    hsize_t dims[3];
-    H5Sget_simple_extent_dims(dataspace, dims, nullptr);
-    hsize_t T = dims[0];
-    hsize_t Y = dims[1];
-    hsize_t X = dims[2];
+    int dimids[3];
+    size_t T, Y, X;
+    nc_inq_vardimid(ncid, varid, dimids);
+    nc_inq_dimlen(ncid, dimids[0], &T);
+    nc_inq_dimlen(ncid, dimids[1], &Y);
+    nc_inq_dimlen(ncid, dimids[2], &X);
 
-    // Корректировка y_end, если он выходит за пределы данных
-    int local_y_end = y_end > static_cast<int>(Y) ? static_cast<int>(Y) : y_end;
-    hsize_t region_height = local_y_end - y_start;
+    int local_y_end = y_end;
+    if (static_cast<size_t>(local_y_end) > Y)
+        local_y_end = static_cast<int>(Y);
+    size_t region_height = local_y_end - y_start;
 
-    // Определяем hyperslab в файловом dataspace
-    hsize_t offset[3] = { 0, static_cast<hsize_t>(y_start), 0 };
-    hsize_t count[3] = { T, region_height, X };
-    herr_t status = H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, nullptr, count, nullptr);
-    if (status < 0) {
-        std::cerr << "Ошибка выбора hyperslab в файле " << filePath.string() << std::endl;
-        H5Sclose(dataspace);
-        H5Dclose(dataset);
-        H5Fclose(file);
-        throw std::runtime_error("Ошибка выбора hyperslab");
+    // Preallocate the 3D vector structure.
+    data.resize(T);
+    for (size_t t = 0; t < T; t++) {
+        data[t].resize(region_height);
+        for (size_t i = 0; i < region_height; i++) {
+            data[t][i].resize(X);
+        }
     }
 
-    // Создаём dataspace для памяти с теми же размерами
-    hid_t memspace = H5Screate_simple(3, count, nullptr);
-    if (memspace < 0) {
-        std::cerr << "Ошибка создания memory dataspace для hyperslab в файле " << filePath.string() << std::endl;
-        H5Sclose(dataspace);
-        H5Dclose(dataset);
-        H5Fclose(file);
-        throw std::runtime_error("Ошибка создания memory dataspace");
+    // Read the full data block into a contiguous buffer.
+    std::vector<double> buffer(T * region_height * X);
+    size_t start[3] = { 0, static_cast<size_t>(y_start), 0 };
+    size_t count[3] = { T, region_height, X };
+    retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
+    if (retval != NC_NOERR) {
+        std::cerr << "Error reading file " << file.string() << " : " << nc_strerror(retval) << std::endl;
+        nc_close(ncid);
+        return data;
     }
+    nc_close(ncid);
 
-    // Создаём Array3DView для хранения данных без дополнительного копирования
-    Array3DView<double> view(T, region_height, X);
-
-    // Считываем данные непосредственно в непрерывный буфер view.data
-    status = H5Dread(dataset, H5T_NATIVE_DOUBLE, memspace, dataspace, H5P_DEFAULT, view.data.data());
-    if (status < 0) {
-        std::cerr << "Ошибка чтения данных из файла " << filePath << std::endl;
-        H5Sclose(memspace);
-        H5Sclose(dataspace);
-        H5Dclose(dataset);
-        H5Fclose(file);
-        throw std::runtime_error("Ошибка чтения данных");
+    // Copy each row from the contiguous buffer into the 3D vector in one go.
+    for (size_t t = 0; t < T; t++) {
+        for (size_t i = 0; i < region_height; i++) {
+            size_t idx = t * region_height * X + i * X;
+            std::copy_n(buffer.begin() + idx, X, data[t][i].begin());
+        }
     }
-
-    // Освобождаем ресурсы HDF5
-    H5Sclose(memspace);
-    H5Sclose(dataspace);
-    H5Dclose(dataset);
-    H5Fclose(file);
-
-    return view;
+    return data;
 }
 
-//
-// Реализация метода WaveManager::load_mariogramm_by_region с использованием Array3DView.
-//
-Array3DView<double> WaveManager::load_mariogramm_by_region(int y_start, int y_end) {
+// ГђГҐГ Г«ГЁГ§Г Г¶ГЁГї Г¬ГҐГІГ®Г¤Г  WaveManager::load_mariogramm_by_region Г± ГЁГ±ГЇГ®Г«ГјГ§Г®ГўГ Г­ГЁГҐГ¬ netcdf.h
+std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_region(int y_start, int y_end) {
+
     return read_nc_file(nc_file, y_start, y_end);
 }
 
-//
-// Функция для извлечения индекса из имени файла
-//
+
+// Г”ГіГ­ГЄГ¶ГЁГї Г¤Г«Гї ГЁГ§ГўГ«ГҐГ·ГҐГ­ГЁГї ГЁГ­Г¤ГҐГЄГ±Г  ГЁГ§ ГЁГ¬ГҐГ­ГЁ ГґГ Г©Г«Г 
 int extractIndex(const fs::path& filePath) {
+    // ГђГҐГЈГіГ«ГїГ°Г­Г®ГҐ ГўГ»Г°Г Г¦ГҐГ­ГЁГҐ Г¤Г«Гї ГЇГ®ГЁГ±ГЄГ  ГёГ ГЎГ«Г®Г­Г  _<Г·ГЁГ±Г«Г®>.nc
     std::regex regexPattern("_(\\d+)\\.nc");
     std::smatch match;
     std::string filename = filePath.filename().string();
     if (std::regex_search(filename, match, regexPattern)) {
         return std::stoi(match[1].str());
     }
+    // Г…Г±Г«ГЁ ГЁГ­Г¤ГҐГЄГ± Г­ГҐ Г­Г Г©Г¤ГҐГ­, ГўГ®Г§ГўГ°Г Г№Г ГҐГ¬ Г¬Г ГЄГ±ГЁГ¬Г Г«ГјГ­Г®ГҐ Г§Г­Г Г·ГҐГ­ГЁГҐ,
+    // Г·ГІГ®ГЎГ» ГґГ Г©Г« Г®ГЄГ Г§Г Г«Г±Гї Гў ГЄГ®Г­Г¶ГҐ Г®ГІГ±Г®Г°ГІГЁГ°Г®ГўГ Г­Г­Г®ГЈГ® Г±ГЇГЁГ±ГЄГ .
     return std::numeric_limits<int>::max();
 }
 
-//
-// Функция для получения отсортированного списка файлов
-//
+// Г”ГіГ­ГЄГ¶ГЁГї Г¤Г«Гї ГЇГ®Г«ГіГ·ГҐГ­ГЁГї Г®ГІГ±Г®Г°ГІГЁГ°Г®ГўГ Г­Г­Г®ГЈГ® Г±ГЇГЁГ±ГЄГ  ГґГ Г©Г«Г®Гў
 std::vector<fs::path> getSortedFileList(const std::string& folder) {
     std::vector<fs::path> files;
+
+    // ГЏГҐГ°ГҐГЎГЁГ°Г ГҐГ¬ ГўГ±ГҐ ГґГ Г©Г«Г» Гў Г§Г Г¤Г Г­Г­Г®Г© Г¤ГЁГ°ГҐГЄГІГ®Г°ГЁГЁ
     for (const auto& entry : fs::directory_iterator(folder)) {
         if (entry.is_regular_file()) {
             fs::path filePath = entry.path();
+            // ГЏГ°Г®ГўГҐГ°ГїГҐГ¬, Г·ГІГ® ГґГ Г©Г« ГЁГ¬ГҐГҐГІ Г°Г Г±ГёГЁГ°ГҐГ­ГЁГҐ ".nc" ГЁ Г±Г®Г¤ГҐГ°Г¦ГЁГІ Г±ГЁГ¬ГўГ®Г« '_'
             if (filePath.extension() == ".nc" &&
                 filePath.filename().string().find('_') != std::string::npos) {
                 files.push_back(filePath);
             }
         }
     }
+
+    // Г‘Г®Г°ГІГЁГ°ГіГҐГ¬ ГґГ Г©Г«Г» ГЇГ® Г·ГЁГ±Г«Г®ГўГ®Г¬Гі Г§Г­Г Г·ГҐГ­ГЁГѕ, ГЁГ§ГўГ«ГҐГ·ВёГ­Г­Г®Г¬Гі ГЁГ§ ГЁГ¬ГҐГ­ГЁ ГґГ Г©Г«Г 
     std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
         return extractIndex(a) < extractIndex(b);
         });
+
     return files;
 }
 
-//
-// Реализация метода BasisManager::get_fk_region с использованием Array3DView.
-// Для каждого файла из каталога создаётся 3D view, возвращаемый в векторе.
-//
-std::vector<Array3DView<double>> BasisManager::get_fk_region(int y_start, int y_end) {
-    std::vector<Array3DView<double>> fk;
+
+std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_region(int y_start, int y_end) {
+    std::vector<std::vector<std::vector<std::vector<double>>>> fk;
     std::vector<fs::path> files = getSortedFileList(folder);
 
-    // Асинхронное чтение для каждого файла
-    std::vector<std::future<Array3DView<double>>> futures;
+    // ГЏГ®Г±Г«ГҐГ¤Г®ГўГ ГІГҐГ«ГјГ­Г Гї Г®ГЎГ°Г ГЎГ®ГІГЄГ  ГґГ Г©Г«Г®Гў
     for (const auto& file : files) {
-        futures.push_back(std::async(std::launch::async, read_nc_file, file, y_start, y_end));
-    }
-
-    // Собираем результаты
-    for (auto& fut : futures) {
-        fk.push_back(fut.get());
+        auto file_data = read_nc_file(file, y_start, y_end);
+        if (!file_data.empty()) {
+            fk.push_back(file_data);
+        }
     }
     return fk;
 }
