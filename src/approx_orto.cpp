@@ -1,6 +1,7 @@
 #include "approx_orto.h"
 #include <iostream>
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 
 // Функция для скалярного произведения двух векторов с использованием Eigen
@@ -8,25 +9,126 @@ inline double dot_product(const Vector& v1, const Vector& v2) {
     return v1.dot(v2);
 }
 
-// Функция для ортогонализации системы векторов методом Грама-Шмидта с использованием Eigen
 Matrix gram_schmidt(const Matrix& vectors) {
     size_t n = vectors.rows();
     Matrix orthogonal_vectors = Matrix::Zero(vectors.rows(), vectors.cols());
+
     for (size_t i = 0; i < n; ++i) {
         Vector new_vector = vectors.row(i);
         if (i == 0) {
             orthogonal_vectors.row(0) = new_vector;
-        } else {
+        }
+        else {
             for (size_t j = 0; j < i; ++j) {
-                double scale = dot_product(new_vector, orthogonal_vectors.row(j)) /
-                               dot_product(orthogonal_vectors.row(j), orthogonal_vectors.row(j));
+
+                double denominator = dot_product(orthogonal_vectors.row(j), orthogonal_vectors.row(j));
+                
+                // Проверка деления на ноль (или слишком малое значение)
+                if (std::abs(denominator) < 1e-10) {
+                    std::cout << "f: " << orthogonal_vectors.row(j) << std::endl;
+                    throw std::runtime_error("Деление на ноль: нормированный вектор слишком близок к нулю.");
+                }
+                double scale = dot_product(new_vector, orthogonal_vectors.row(j)) / denominator;
+                // Проверка scale на NaN
+                if (std::isnan(scale)) {
+                    throw std::runtime_error("Обнаружено NaN при вычислении коэффициента масштабирования.");
+                }
                 new_vector -= scale * orthogonal_vectors.row(j);
+
+                // Проверка каждого элемента new_vector на NaN
+                for (int k = 0; k < new_vector.size(); ++k) {
+                    if (std::isnan(new_vector[k])) {
+                        throw std::runtime_error("Обнаружено NaN в векторе после вычитания.");
+                    }
+                }
             }
             orthogonal_vectors.row(i) = new_vector;
+        }
+        // Альтернативно, можно проверить всю строку с использованием встроенной функции Eigen:
+        if (orthogonal_vectors.row(i).hasNaN()) {
+            throw std::runtime_error("Обнаружено NaN в вычисленной ортогональной строке.");
         }
     }
     return orthogonal_vectors;
 }
+ 
+
+
+
+//Matrix gram_schmidt(const Matrix& vectors) {
+//    // Открытие файла для логирования (перезаписываем файл при каждом запуске)
+//    std::ofstream log("log.txt", std::ios::app);
+//    if (!log.is_open()) {
+//        throw std::runtime_error("Не удалось открыть файл log.txt для записи.");
+//    }
+//
+//    log << "=== Начало процесса ортогонализации ===\n";
+//    size_t n = vectors.rows();
+//    log << "Количество векторов: " << n << "\n\n";
+//
+//    Matrix orthogonal_vectors = Matrix::Zero(vectors.rows(), vectors.cols());
+//
+//    for (size_t i = 0; i < n; ++i) {
+//        log << "Обработка вектора " << i << ":\n";
+//        Vector new_vector = vectors.row(i);
+//        log << "Исходный вектор: " << new_vector.transpose() << "\n";
+//
+//        if (i == 0) {
+//            orthogonal_vectors.row(0) = new_vector;
+//            log << "Вектор " << i << " используется как первый ортогональный вектор.\n";
+//        }
+//        else {
+//            for (size_t j = 0; j < i; ++j) {
+//                log << "  Вычисление проекции на вектор " << j << ":\n";
+//                double denominator = dot_product(orthogonal_vectors.row(j), orthogonal_vectors.row(j));
+//                log << "    Вычислен знаменатель (||v_" << j << "||^2): " << denominator << "\n";
+//
+//                // Проверка деления на ноль (или слишком малое значение)
+//                if (std::abs(denominator) < 1e-10) {
+//                    log << "    Ошибка: деление на ноль или слишком малое значение знаменателя для вектора "
+//                        << j << ". Вектор: " << orthogonal_vectors.row(j) << "\n";
+//                    throw std::runtime_error("Деление на ноль: нормированный вектор слишком близок к нулю.");
+//                }
+//
+//                double scale = dot_product(new_vector, orthogonal_vectors.row(j)) / denominator;
+//                log << "    Вычислен коэффициент масштабирования: " << scale << "\n";
+//
+//                // Проверка scale на NaN
+//                if (std::isnan(scale)) {
+//                    log << "    Ошибка: обнаружено NaN при вычислении коэффициента масштабирования для вектора " << j << ".\n";
+//                    throw std::runtime_error("Обнаружено NaN при вычислении коэффициента масштабирования.");
+//                }
+//
+//                log << "    Вектор до вычитания проекции: " << new_vector.transpose() << "\n";
+//                new_vector -= scale * orthogonal_vectors.row(j);
+//                log << "    Вектор после вычитания проекции: " << new_vector.transpose() << "\n";
+//
+//                // Проверка каждого элемента new_vector на NaN
+//                for (int k = 0; k < new_vector.size(); ++k) {
+//                    if (std::isnan(new_vector[k])) {
+//                        log << "    Ошибка: обнаружено NaN в элементе " << k
+//                            << " нового вектора после вычитания.\n";
+//                        throw std::runtime_error("Обнаружено NaN в векторе после вычитания.");
+//                    }
+//                }
+//            }
+//            orthogonal_vectors.row(i) = new_vector;
+//            log << "  Итоговый ортогональный вектор " << i << ": " << new_vector.transpose() << "\n";
+//        }
+//
+//        // Проверка всей строки на NaN с использованием встроенной функции Eigen:
+//        if (orthogonal_vectors.row(i).hasNaN()) {
+//            log << "Ошибка: обнаружено NaN в вычисленной ортогональной строке " << i << ".\n";
+//            throw std::runtime_error("Обнаружено NaN в вычисленной ортогональной строке.");
+//        }
+//        log << "\n";
+//    }
+//
+//    log << "=== Ортогонализация завершена успешно ===\n";
+//    log.close();
+//    return orthogonal_vectors;
+//}
+
 
 // Функция для разложения вектора по ортогональному базису с использованием Eigen
 Vector decompose_vector(const Vector& v, const Matrix& orthogonal_basis) {
@@ -81,9 +183,15 @@ Vector compute_bi(size_t k, const Vector& a_k, const Matrix& l) {
 // Основная функция аппроксимации (ортогонализованный метод)
 Vector approximate_with_non_orthogonal_basis_orto(const Vector& x, const Matrix& f_k) {
     // Ортогонализация базиса
+    std::ofstream file = std::ofstream("f_k.txt");
+    file << f_k;
+    file = std::ofstream("gramm.txt");
     Matrix e_i = gram_schmidt(f_k);
+    file << e_i;
     // Разложение вектора x по ортогональному базису
     Vector a_k = decompose_vector(x, e_i);
+    file = std::ofstream("decompose.txt");
+    file << e_i;
     // Вычисление матрицы l_k_i
     Matrix l_k_i(f_k.rows(), f_k.cols());
     for (size_t k = 0; k < f_k.rows(); ++k) {

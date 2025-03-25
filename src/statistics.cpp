@@ -36,7 +36,7 @@ void calculate_statistics(const std::string& root_folder,
     int width = area_config.all[0];
     int height = area_config.all[1];
     int gigabyte_size = 96;
-    int memory_in_gb = 48;
+    int memory_in_gb = 32;
     int batch_size = gigabyte_size * memory_in_gb / (count_from_name(basis) + 1);
     int y_start_init = 75;
 
@@ -50,7 +50,7 @@ void calculate_statistics(const std::string& root_folder,
         if (wave_data.empty() || fk_data.empty())
             continue;
 
-        int region_height = y_end - y_start;
+        int region_height = std::min(y_end,height/4) - y_start;
         // Предполагаем, что x_max = width / 4 (как в оригинале)
         int x_max = width / 4;
         int totalElements = static_cast<int>(wave_data.size());
@@ -58,13 +58,34 @@ void calculate_statistics(const std::string& root_folder,
         int T = totalElements / (region_height * x_max);
         int n_basis = static_cast<int>(fk_data.size());
 
+        {
+            // Открытие файла для записи
+            std::ofstream file("fk.txt");
+            if (!file.is_open()) {
+                std::cerr << "Ошибка открытия файла!" << std::endl;
+            }
+
+            // Запись элементов в файл:
+            // Значения разделяются табуляцией, а массивы (строки) — переносом строки
+            for (const auto& row : fk_data) {
+                for (size_t j = 0; j < 4002; j++) {
+                    file << row[j];
+                    if (j != row.size() - 1)
+                        file << "\t";  // разделитель значений
+                }
+                file << "\n";  // разделитель строк
+            }
+
+            file.close();
+        }
+
         std::cout << "loaded region: y_start=" << y_start << ", y_end=" << y_end << "\n";
 
         std::vector<std::future<std::vector<CoefficientData>>> futures;
         futures.reserve(region_height);
 
         for (int i = 0; i < region_height; i++) {
-            futures.push_back(std::async(std::launch::async,
+            futures.push_back(std::async(std::launch::deferred,
                 [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<CoefficientData> {
                     std::vector<CoefficientData> row_data;
                     // Данные организованы как [region_height][x_max][T]
@@ -134,6 +155,6 @@ void save_and_plot_statistics(const std::string& root_folder,
     CoeffMatrix statistics_orto;
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
-    std::string filename_orto = "E:/tsunami_res_dir/coefs_nessesary/case_statistics_hd_y_" + basis + bath + "_o.json";
+    std::string filename_orto = "E:/tsunami_res_dir/coefs_nessesary/case_statistics_hd_y_" + basis + "_" + bath + "_right.json";
     save_coefficients_json(filename_orto, statistics_orto);
 }

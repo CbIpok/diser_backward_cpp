@@ -27,34 +27,13 @@ std::vector<double> read_nc_file(const std::string& filename, int y_start, int y
     fs::path file(filename);
     std::cout << "Loading file (mapped): " << file << std::endl;
 
-    // Получаем размеры из файла.
-    int ncid;
-    if (open_nc_file(file.string(), ncid) != NC_NOERR)
-        return result;
-
-    int varid;
-    int retval = nc_inq_varid(ncid, "height", &varid);
-    if (retval != NC_NOERR) {
-        std::cerr << "Variable 'height' not found in file " << file.string() << std::endl;
-        nc_close(ncid);
-        return result;
-    }
-
-    int ndims;
-    nc_inq_varndims(ncid, varid, &ndims);
-    if (ndims != 3) {
-        std::cerr << "Expected 3 dimensions in file " << file.string() << std::endl;
-        nc_close(ncid);
-        return result;
-    }
+    
 
     int dimids[3];
-    size_t T, Y, X;
-    nc_inq_vardimid(ncid, varid, dimids);
-    nc_inq_dimlen(ncid, dimids[0], &T);
-    nc_inq_dimlen(ncid, dimids[1], &Y);
-    nc_inq_dimlen(ncid, dimids[2], &X);
-    nc_close(ncid);
+    size_t T = 2001;
+    size_t    Y = 512;
+    size_t    X = 512;
+    
 
     int local_y_end = y_end;
     if (static_cast<size_t>(local_y_end) > Y)
@@ -66,7 +45,7 @@ std::vector<double> read_nc_file(const std::string& filename, int y_start, int y
 
     // Создаем уникальное имя для общей памяти.
     std::ostringstream shmNameStream;
-    shmNameStream << "Local\\MySharedMemory_" << GetCurrentProcessId() << "_" << GetTickCount();
+    shmNameStream << "Local\\MySharedMemory_" << GetCurrentProcessId() << "_" << GetTickCount() << filename.substr(filename.size() - 5);
     std::string shmName = shmNameStream.str();
 
     HANDLE hMapFile = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
@@ -181,14 +160,34 @@ std::vector<std::vector<double>> BasisManager::get_fk_region(int y_start, int y_
         });
 
     std::vector<std::future<std::vector<double>>> futures;
-    // Запускаем асинхронное выполнение для каждого файла
     for (const auto& file : files) {
+        // Ограничиваем количество одновременно выполняемых потоков до 6
+        while (futures.size() >= 6) {
+            for (auto it = futures.begin(); it != futures.end(); ) {
+                // Проверяем, готов ли future без ожидания
+                if (it->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+                    std::vector<double> file_data = it->get();
+                    if (!file_data.empty()) {
+                        fk.push_back(std::move(file_data));
+                    }
+                    it = futures.erase(it);
+                }
+                else {
+                    ++it;
+                }
+            }
+            // Если все 6 потоков всё ещё заняты, подождем немного
+            if (futures.size() >= 6)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        // Запускаем новую асинхронную задачу для текущего файла
         futures.emplace_back(std::async(std::launch::async, [file, y_start, y_end]() -> std::vector<double> {
             return read_nc_file(file.string(), y_start, y_end);
             }));
     }
 
-    // Сбор результатов
+    // Сбор результатов из оставшихся future
     for (auto& fut : futures) {
         std::vector<double> file_data = fut.get();
         if (!file_data.empty()) {

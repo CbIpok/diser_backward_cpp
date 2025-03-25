@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: " << argv[0] << " <filename> <y_start> <region_height> <T> <X> [<shmName>]" << std::endl;
         return 1;
     }
-
+    
     std::string filename = argv[1];
     int y_start = std::atoi(argv[2]);
     int region_height = std::atoi(argv[3]);
