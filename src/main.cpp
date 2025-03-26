@@ -80,62 +80,48 @@ int runWithPrePost(const std::string& root_folder,
     const std::string& wave,
     const std::string& basis,
     const AreaConfigurationInfo& area_config) {
-    // Build paths for copying the basis folder
+    // Формируем пути для копирования папки basis
     std::string sourceBasisFolder = root_folder + "/" + bath + "/" + basis;
     std::string destBathFolder = cache_folder + "/" + bath;
     std::string destBasisFolder = destBathFolder + "/" + basis;
 
-    // Measure time for copying the basis folder
-    auto start_copy_basis = std::chrono::high_resolution_clock::now();
+    // Копируем папку basis
     bool copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
-    auto end_copy_basis = std::chrono::high_resolution_clock::now();
-    auto copy_basis_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_copy_basis - start_copy_basis).count();
-    std::cout << "Time to copy basis folder: " << copy_basis_time << " ms" << std::endl;
-
     if (!copiedFolder) {
-        std::cerr << "Failed to copy folder: " << sourceBasisFolder << std::endl;
+        std::cerr << "error copy folder: " << sourceBasisFolder << std::endl;
         return -1;
     }
 
-    // Build paths for the wave folder
-    std::string sourceWaveFolder = root_folder + "/" + bath + "/" + wave + ".bp";
-    std::string destWaveFolder = destBathFolder + "/" + wave + ".bp";
+    // Формируем пути для файла wave
+    std::string sourceWaveFile = root_folder + "/" + bath + "/" + wave + ".nc";
+    std::string destWaveFile = destBathFolder + "/" + wave + ".nc";
 
-    bool folderAlreadyExists = fileExists(destWaveFolder);
-    bool copiedWaveFolder = false;
+    bool fileAlreadyExists = fileExists(destWaveFile);
+    bool copiedFile = false;
 
-    // Measure time for copying the wave folder if it exists in the source and does not exist in the destination
-    if (!folderAlreadyExists && fs::exists(sourceWaveFolder)) {
-        auto start_copy_wave = std::chrono::high_resolution_clock::now();
-        copiedWaveFolder = copyFolder(sourceWaveFolder, destWaveFolder);
-        auto end_copy_wave = std::chrono::high_resolution_clock::now();
-        auto copy_wave_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_copy_wave - start_copy_wave).count();
-        std::cout << "Time to copy wave folder: " << copy_wave_time << " ms" << std::endl;
-
-        if (!copiedWaveFolder) {
-            std::cerr << "Failed to copy folder: " << sourceWaveFolder << std::endl;
-            // If copying the folder failed, delete the previously copied basis folder
+    // Если файл не существует в целевой папке и исходный файл есть – копируем
+    if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
+        copiedFile = copyFile(sourceWaveFile, destWaveFile);
+        if (!copiedFile) {
+            std::cerr << "error copy file: " << sourceWaveFile << std::endl;
+            // Если не удалось скопировать файл, удаляем ранее скопированную папку
             deleteFolder(destBasisFolder);
             return -1;
         }
     }
 
-    // Measure time for executing save_and_plot_statistics
-    auto start_save_plot = std::chrono::high_resolution_clock::now();
+    // Выполняем основную функцию
     save_and_plot_statistics(cache_folder, bath, wave, basis, area_config);
-    auto end_save_plot = std::chrono::high_resolution_clock::now();
-    auto save_plot_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_save_plot - start_save_plot).count();
-    std::cout << "Time to execute save_and_plot_statistics: " << save_plot_time << " ms" << std::endl;
 
-    // Delete the copied basis folder from the cache
+    // Удаляем скопированную папку basis из кэша
     if (!deleteFolder(destBasisFolder)) {
-        std::cerr << "Failed to delete folder: " << destBasisFolder << std::endl;
+        std::cerr << "Не удалось удалить папку: " << destBasisFolder << std::endl;
     }
 
-    // If the wave folder was copied (i.e. it did not exist beforehand), delete it
-    if (copiedWaveFolder) {
-        if (!deleteFolder(destWaveFolder)) {
-            std::cerr << "Failed to delete folder: " << destWaveFolder << std::endl;
+    // Если файл был скопирован (то есть его не было заранее) – удаляем его
+    if (copiedFile) {
+        if (!deleteFile(destWaveFile)) {
+            std::cerr << "Не удалось удалить файл: " << destWaveFile << std::endl;
         }
     }
 
@@ -209,7 +195,7 @@ int main(int argc, char* argv[]) {
     std::string basis = argv[3];
 
     // Other parameters can be fixed or also obtained from arguments
-    std::string root_folder = "T:/tsunami_adios_res";
+    std::string root_folder = "T:/tsunami_res_folder";
     std::string cache_folder = "C:/dmitrienkomy/cache";
 
     // Initialize area configuration (zones.json must be correct)

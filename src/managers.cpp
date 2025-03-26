@@ -162,7 +162,7 @@ std::vector<std::vector<double>> BasisManager::get_fk_region(int y_start, int y_
     std::vector<std::future<std::vector<double>>> futures;
     for (const auto& file : files) {
         // Ограничиваем количество одновременно выполняемых потоков до 6
-        while (futures.size() >= 6) {
+        while (futures.size() >= 8) {
             for (auto it = futures.begin(); it != futures.end(); ) {
                 // Проверяем, готов ли future без ожидания
                 if (it->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {

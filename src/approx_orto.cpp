@@ -182,16 +182,12 @@ Vector compute_bi(size_t k, const Vector& a_k, const Matrix& l) {
 
 // Основная функция аппроксимации (ортогонализованный метод)
 Vector approximate_with_non_orthogonal_basis_orto(const Vector& x, const Matrix& f_k) {
-    // Ортогонализация базиса
-    std::ofstream file = std::ofstream("f_k.txt");
-    file << f_k;
-    file = std::ofstream("gramm.txt");
+   
     Matrix e_i = gram_schmidt(f_k);
-    file << e_i;
+    
     // Разложение вектора x по ортогональному базису
     Vector a_k = decompose_vector(x, e_i);
-    file = std::ofstream("decompose.txt");
-    file << e_i;
+    
     // Вычисление матрицы l_k_i
     Matrix l_k_i(f_k.rows(), f_k.cols());
     for (size_t k = 0; k < f_k.rows(); ++k) {
